@@ -1,7 +1,7 @@
 ﻿namespace TodoApi.Models
 {
     #region snippet
-    public class TodoItemDTO
+    public class TodoItemDTO: IEntity
     {
         public long Id { get; set; }
         public string Name { get; set; }

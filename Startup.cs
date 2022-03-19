@@ -12,6 +12,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using TodoApi.Models;
+using TodoApiDTO.BL;
+using TodoApiDTO.DAL;
+using TodoApiDTO.Logging;
 
 namespace TodoApi
 {
@@ -28,16 +31,26 @@ namespace TodoApi
         public void ConfigureServices(IServiceCollection services)
         {
             services.AddDbContext<TodoContext>(opt =>
-               opt.UseInMemoryDatabase("TodoList"));
+                opt.UseSqlServer(this.Configuration.GetConnectionString("DB")));
             services.AddControllers();
+
+            services.AddSwaggerGen();
+
+            services.AddScoped<IRepository<TodoItemDTO>, TodoRepository>();
+            services.AddScoped<TodoService>();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
-        public void Configure(IApplicationBuilder app, IWebHostEnvironment env)
+        public void Configure(IApplicationBuilder app, IWebHostEnvironment env, ILoggerFactory loggerFactory)
         {
+            Log4NetProvider.TryRegister(loggerFactory);
+
             if (env.IsDevelopment())
             {
                 app.UseDeveloperExceptionPage();
+
+                app.UseSwagger();
+                app.UseSwaggerUI();
             }
 
             app.UseHttpsRedirection();
@@ -50,6 +63,14 @@ namespace TodoApi
             {
                 endpoints.MapControllers();
             });
+
+            using (var scope = app.ApplicationServices.CreateScope())
+            {
+                using (var db = scope.ServiceProvider.GetService<TodoContext>())
+                {
+                    db.Database.Migrate();
+                }
+            }
         }
     }
 }

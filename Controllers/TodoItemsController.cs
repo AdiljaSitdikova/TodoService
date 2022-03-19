@@ -1,42 +1,42 @@
-using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using TodoApi.Models;
-
 namespace TodoApi.Controllers
 {
+    using Microsoft.AspNetCore.Mvc;
+    using Microsoft.Extensions.Logging;
+    using System.Collections.Generic;
+    using System.Linq;
+    using System.Threading.Tasks;
+    using TodoApi.Models;
+    using TodoApiDTO.BL;
+
     [Route("api/[controller]")]
     [ApiController]
     public class TodoItemsController : ControllerBase
     {
-        private readonly TodoContext _context;
+        private readonly IRepository<TodoItemDTO> repository;
+        private readonly TodoService todoService;
+        private readonly ILogger<IEntity> logger;
 
-        public TodoItemsController(TodoContext context)
+        public TodoItemsController(IRepository<TodoItemDTO> repository, TodoService todoService, ILogger<IEntity> logger)
         {
-            _context = context;
+            this.repository = repository;
+            this.todoService = todoService;
+            this.logger = logger;
         }
 
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<TodoItemDTO>>> GetTodoItems()
-        {
-            return await _context.TodoItems
-                .Select(x => ItemToDTO(x))
-                .ToListAsync();
-        }
+        public IEnumerable<TodoItemDTO> GetTodoItems() => this.repository.Get().ToList();
 
         [HttpGet("{id}")]
         public async Task<ActionResult<TodoItemDTO>> GetTodoItem(long id)
         {
-            var todoItem = await _context.TodoItems.FindAsync(id);
+            var res = await this.repository.Get(id);
 
-            if (todoItem == null)
+            if (res == null)
             {
                 return NotFound();
             }
 
-            return ItemToDTO(todoItem);
+            return res;
         }
 
         [HttpPut("{id}")]
@@ -47,22 +47,14 @@ namespace TodoApi.Controllers
                 return BadRequest();
             }
 
-            var todoItem = await _context.TodoItems.FindAsync(id);
-            if (todoItem == null)
-            {
-                return NotFound();
-            }
-
-            todoItem.Name = todoItemDTO.Name;
-            todoItem.IsComplete = todoItemDTO.IsComplete;
-
             try
             {
-                await _context.SaveChangesAsync();
+                await this.repository.Update(todoItemDTO);
             }
-            catch (DbUpdateConcurrencyException) when (!TodoItemExists(id))
+            catch (KeyNotFoundException ex)
             {
-                return NotFound();
+                logger.LogError(ex.Message);
+                return NotFound(ex.Message);
             }
 
             return NoContent();
@@ -71,46 +63,42 @@ namespace TodoApi.Controllers
         [HttpPost]
         public async Task<ActionResult<TodoItemDTO>> CreateTodoItem(TodoItemDTO todoItemDTO)
         {
-            var todoItem = new TodoItem
-            {
-                IsComplete = todoItemDTO.IsComplete,
-                Name = todoItemDTO.Name
-            };
+            await this.repository.Create(todoItemDTO);
 
-            _context.TodoItems.Add(todoItem);
-            await _context.SaveChangesAsync();
-
-            return CreatedAtAction(
-                nameof(GetTodoItem),
-                new { id = todoItem.Id },
-                ItemToDTO(todoItem));
+            return CreatedAtAction(nameof(GetTodoItem), new { id = todoItemDTO.Id }, todoItemDTO);
         }
 
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteTodoItem(long id)
         {
-            var todoItem = await _context.TodoItems.FindAsync(id);
-
-            if (todoItem == null)
+            try
             {
-                return NotFound();
+                await this.repository.Delete(id);
             }
-
-            _context.TodoItems.Remove(todoItem);
-            await _context.SaveChangesAsync();
+            catch (KeyNotFoundException ex)
+            {
+                logger.LogError(ex.Message);
+                return NotFound(ex.Message);
+            }
 
             return NoContent();
         }
 
-        private bool TodoItemExists(long id) =>
-             _context.TodoItems.Any(e => e.Id == id);
-
-        private static TodoItemDTO ItemToDTO(TodoItem todoItem) =>
-            new TodoItemDTO
+        [HttpPost]
+        [Route("[action]")]
+        public async Task<IActionResult> SetIsComplete(long id, [FromBody]bool isComplete)
+        {
+            try
             {
-                Id = todoItem.Id,
-                Name = todoItem.Name,
-                IsComplete = todoItem.IsComplete
-            };       
+                await this.todoService.SetIsComplete(id, isComplete);
+            }
+            catch (KeyNotFoundException ex)
+            {
+                logger.LogError(ex.Message);
+                return NotFound(ex.Message);
+            }
+
+            return NoContent();
+        }
     }
 }
